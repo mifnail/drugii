@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import NoReturn
 
 import aiohttp
+import aiohttp.web
 
 from app.config import Config
 from app.database import get_db
