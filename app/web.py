@@ -217,6 +217,9 @@ function renderUsers(users, devices) {
         </div>`
       ).join('') + '</div>'
       : '<div style="margin-top:4px;font-size:11px;color:#666;">нет устройств</div>'}
+      <div style="margin-top:6px;">
+        <button class="btn btn-sm" onclick="doMerge(${u.id},'${e(u.full_name)}')" title="Объединить с другим пользователем">Объединить</button>
+      </div>
     </div>`;
   }).join('');
 }
@@ -280,6 +283,24 @@ async function doUnbind(deviceId) {
   } catch(e) {
     document.getElementById('userAlert').innerHTML = `<div class="alert alert-err">${e.message}</div>`;
   }
+}
+
+function doMerge(srcId, srcName) {
+  const tid = prompt(`Объединить «${srcName}» (ID ${srcId}) с пользователем ID: (укажите, КУДА перенести)`)?.trim();
+  if (!tid || tid == srcId) return;
+  const tidNum = parseInt(tid);
+  if (!tidNum) return;
+  if (!confirm(`Объединить #${srcId} → #${tidNum}?\\nКонтакты и устройства #${srcId} будут перенесены.`)) return;
+  fetch('/api/merge', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({source_id: srcId, target_id: tidNum})
+  }).then(r=>r.json()).then(data=>{
+    if (!data.ok) throw new Error(data.error);
+    loadUsers();
+  }).catch(e=>{
+    document.getElementById('userAlert').innerHTML = `<div class="alert alert-err">Ошибка: ${e.message}</div>`;
+  });
 }
 
 // ---------------------------------------------------------------- utils
@@ -461,6 +482,75 @@ async def api_unbind(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def api_merge(request: web.Request) -> web.Response:
+    """
+    POST /api/merge — объединение двух профилей одного человека.
+
+    Тело: {"source_id": N, "target_id": N}
+    """
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, aiohttp.ContentTypeError):
+        return web.json_response({"error": "Неверный JSON"}, status=400)
+
+    source_id = body.get("source_id")
+    target_id = body.get("target_id")
+    if not isinstance(source_id, int) or source_id <= 0:
+        return web.json_response({"error": "source_id обязателен"}, status=400)
+    if not isinstance(target_id, int) or target_id <= 0:
+        return web.json_response({"error": "target_id обязателен"}, status=400)
+    if source_id == target_id:
+        return web.json_response({"error": "source_id и target_id совпадают"}, status=400)
+
+    db = await get_db()
+    try:
+        src = await (await db.execute(
+            "SELECT id, full_name, telegram_id, max_chat_id FROM users WHERE id = ?",
+            (source_id,),
+        )).fetchone()
+        dst = await (await db.execute(
+            "SELECT id, full_name, telegram_id, max_chat_id FROM users WHERE id = ?",
+            (target_id,),
+        )).fetchone()
+
+        if not src:
+            return web.json_response({"error": f"Источник #{source_id} не найден"}, status=404)
+        if not dst:
+            return web.json_response({"error": f"Цель #{target_id} не найдена"}, status=404)
+
+        if src["telegram_id"] and not dst["telegram_id"]:
+            await db.execute(
+                "UPDATE users SET telegram_id = ?, updated_at = datetime('now') WHERE id = ?",
+                (src["telegram_id"], target_id),
+            )
+        if src["max_chat_id"] and not dst["max_chat_id"]:
+            await db.execute(
+                "UPDATE users SET max_chat_id = ?, updated_at = datetime('now') WHERE id = ?",
+                (src["max_chat_id"], target_id),
+            )
+
+        await db.execute(
+            "UPDATE devices SET user_id = ? WHERE user_id = ?",
+            (target_id, source_id),
+        )
+        await db.execute(
+            "UPDATE greetings SET user_id = ? WHERE user_id = ?",
+            (target_id, source_id),
+        )
+        await db.execute(
+            "UPDATE users SET full_name = full_name || ' (объединён с #' || ? || ')', "
+            "telegram_id = NULL, max_chat_id = NULL, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (target_id, source_id),
+        )
+        await db.commit()
+        logger.info("Пользователь #%s объединён с #%s через веб", source_id, target_id)
+        return web.json_response({"ok": True})
+    except Exception as exc:
+        logger.error("Ошибка объединения #%s → #%s: %s", source_id, target_id, exc)
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 # ---------------------------------------------------------------------------
 # Точка входа
 # ---------------------------------------------------------------------------
@@ -486,6 +576,7 @@ async def run_web_ui(config: Config) -> NoReturn:
     app.router.add_post("/api/scan", api_scan)
     app.router.add_post("/api/bind", api_bind)
     app.router.add_post("/api/unbind", api_unbind)
+    app.router.add_post("/api/merge", api_merge)
 
     runner = web.AppRunner(app)
     try:

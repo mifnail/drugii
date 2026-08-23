@@ -267,6 +267,96 @@ def user_show(user_id: int) -> None:
     asyncio.run(_with_db(_run)())
 
 
+@user.command(name="merge")
+@click.argument("source_id", type=int)
+@click.argument("target_id", type=int)
+@click.option("--yes", "-y", is_flag=True, help="Пропустить подтверждение")
+def user_merge(source_id: int, target_id: int, yes: bool) -> None:
+    """
+    Объединить два профиля одного человека.
+
+    Переносит контакты (telegram_id, max_chat_id) и устройства от SOURCE_ID
+    к TARGET_ID, после чего деактивирует SOURCE_ID.
+
+    Пример: user merge 4 3  — слить #4 в #3.
+    """
+    async def _run() -> None:
+        db = await get_db()
+
+        src = await (await db.execute(
+            "SELECT id, full_name, telegram_id, max_chat_id FROM users WHERE id = ?",
+            (source_id,),
+        )).fetchone()
+        dst = await (await db.execute(
+            "SELECT id, full_name, telegram_id, max_chat_id FROM users WHERE id = ?",
+            (target_id,),
+        )).fetchone()
+
+        if not src:
+            click.echo(f"❌ Исходный пользователь #{source_id} не найден.")
+            return
+        if not dst:
+            click.echo(f"❌ Целевой пользователь #{target_id} не найден.")
+            return
+
+        click.echo(f"Источник: #{src['id']} {src['full_name']} "
+                   f"(TG:{src['telegram_id'] or '-'} MAX:{src['max_chat_id'] or '-'})")
+        click.echo(f"Цель:     #{dst['id']} {dst['full_name']} "
+                   f"(TG:{dst['telegram_id'] or '-'} MAX:{dst['max_chat_id'] or '-'})")
+        click.echo()
+
+        if not yes and not click.confirm(
+            f"Объединить # {source_id} → # {target_id}?"
+        ):
+            click.echo("Отменено.")
+            return
+
+        updates = []
+        if src["telegram_id"] and not dst["telegram_id"]:
+            updates.append(("telegram_id", src["telegram_id"]))
+        if src["max_chat_id"] and not dst["max_chat_id"]:
+            updates.append(("max_chat_id", src["max_chat_id"]))
+
+        for col, val in updates:
+            await db.execute(
+                f"UPDATE users SET {col} = ?, updated_at = datetime('now') "
+                "WHERE id = ?",
+                (val, target_id),
+            )
+            click.echo(f"  ↳ {col} = {val}")
+
+        devs = await (await db.execute(
+            "SELECT id FROM devices WHERE user_id = ?", (source_id,),
+        )).fetchall()
+        if devs:
+            await db.execute(
+                "UPDATE devices SET user_id = ? WHERE user_id = ?",
+                (target_id, source_id),
+            )
+            click.echo(f"  ↳ устройств перенесено: {len(devs)}")
+
+        grs = await (await db.execute(
+            "SELECT id FROM greetings WHERE user_id = ?", (source_id,),
+        )).fetchall()
+        if grs:
+            await db.execute(
+                "UPDATE greetings SET user_id = ? WHERE user_id = ?",
+                (target_id, source_id),
+            )
+            click.echo(f"  ↳ приветствий перенесено: {len(grs)}")
+
+        await db.execute(
+            "UPDATE users SET full_name = full_name || ' (объединён с #' || ? || ')', "
+            "telegram_id = NULL, max_chat_id = NULL, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (target_id, source_id),
+        )
+        await db.commit()
+        click.echo(f"✅ Пользователь #{source_id} объединён с #{target_id}.")
+
+    asyncio.run(_with_db(_run)())
+
+
 # ---------- device ----------
 
 

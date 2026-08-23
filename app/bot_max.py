@@ -301,8 +301,9 @@ async def _handle_update(event_type: str, chat_id: str, text: str) -> None:
         if len(words) >= 2:
             full_name = " ".join(words[:3])
             try:
+                # Сначала ищем пользователя с таким же max_chat_id
                 cursor = await db.execute(
-                    "SELECT id FROM users WHERE max_chat_id = ?",
+                    "SELECT id, full_name, telegram_id FROM users WHERE max_chat_id = ?",
                     (chat_id,),
                 )
                 existing = await cursor.fetchone()
@@ -315,12 +316,36 @@ async def _handle_update(event_type: str, chat_id: str, text: str) -> None:
                     await db.commit()
                     reply = f"✅ Данные обновлены, {words[0]}!"
                 else:
-                    await db.execute(
-                        "INSERT INTO users (full_name, max_chat_id) VALUES (?, ?)",
-                        (full_name, chat_id),
+                    # Ищем пользователя с таким же ФИО, но без MAX-контакта
+                    cursor = await db.execute(
+                        "SELECT id, full_name, max_chat_id, telegram_id "
+                        "FROM users WHERE full_name = ?",
+                        (full_name,),
                     )
-                    await db.commit()
-                    reply = f"✅ Приятно познакомиться, {words[0]}! Я вас запомнил."
+                    twin = await cursor.fetchone()
+                    if twin and not twin["max_chat_id"]:
+                        # Дополняем существующего пользователя контактом MAX
+                        await db.execute(
+                            "UPDATE users SET max_chat_id = ?, "
+                            "updated_at = datetime('now') WHERE id = ?",
+                            (chat_id, twin["id"]),
+                        )
+                        await db.commit()
+                        reply = (
+                            f"✅ Нашёл ваш профиль в системе, {words[0]}!\n"
+                            "Теперь ДругИИ знает вас и в MAX, и в Telegram."
+                        )
+                        logger.info(
+                            "Пользователь #%s (%s) дополнен контактом MAX %s",
+                            twin["id"], full_name, chat_id,
+                        )
+                    else:
+                        await db.execute(
+                            "INSERT INTO users (full_name, max_chat_id) VALUES (?, ?)",
+                            (full_name, chat_id),
+                        )
+                        await db.commit()
+                        reply = f"✅ Приятно познакомиться, {words[0]}! Я вас запомнил."
                 try:
                     await send_greeting_max(chat_id, reply)
                 except Exception as exc:

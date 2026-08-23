@@ -100,13 +100,35 @@ async def _cmd_register(message: types.Message) -> None:
             await message.answer(f"✅ Данные обновлены, {full_name}! Теперь я буду вас узнавать.")
             logger.info("TG user %s обновил ФИО: %s", telegram_id, full_name)
         else:
-            await db.execute(
-                "INSERT INTO users (full_name, telegram_id) VALUES (?, ?)",
-                (full_name, telegram_id),
+            # Ищем пользователя с таким же ФИО, но без TG-контакта
+            cursor = await db.execute(
+                "SELECT id, full_name, max_chat_id, telegram_id FROM users WHERE full_name = ?",
+                (full_name,),
             )
-            await db.commit()
-            await message.answer(f"✅ Приятно познакомиться, {full_name}! Я запомнил вас.")
-            logger.info("TG user %s зарегистрирован: %s", telegram_id, full_name)
+            twin = await cursor.fetchone()
+            if twin and not twin["telegram_id"]:
+                await db.execute(
+                    "UPDATE users SET telegram_id = ?, updated_at = datetime('now') "
+                    "WHERE id = ?",
+                    (telegram_id, twin["id"]),
+                )
+                await db.commit()
+                await message.answer(
+                    f"✅ Нашёл ваш профиль, {full_name}!\n"
+                    "Теперь ДругИИ знает вас и в Telegram, и в MAX."
+                )
+                logger.info(
+                    "Пользователь #%s (%s) дополнен контактом TG %s",
+                    twin["id"], full_name, telegram_id,
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO users (full_name, telegram_id) VALUES (?, ?)",
+                    (full_name, telegram_id),
+                )
+                await db.commit()
+                await message.answer(f"✅ Приятно познакомиться, {full_name}! Я запомнил вас.")
+                logger.info("TG user %s зарегистрирован: %s", telegram_id, full_name)
     except Exception as exc:
         logger.error("Ошибка регистрации TG user %s: %s", telegram_id, exc)
         await message.answer("❌ Произошла ошибка при регистрации. Попробуйте позже.")
