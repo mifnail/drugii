@@ -19,6 +19,10 @@ from app.greeting import process_new_detection
 
 logger = logging.getLogger(__name__)
 
+# Глобальная блокировка сканирования — BlueZ не позволяет
+# двум клиентам сканировать одновременно
+_scan_lock = asyncio.Lock()
+
 # Регулярное выражение для валидации MAC-адреса (XX:XX:XX:XX:XX:XX)
 _MAC_RE = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
 
@@ -200,8 +204,9 @@ async def run_scanner(config: Config) -> NoReturn:
 
     while True:
         try:
-            logger.debug("Начало сканирования BLE (duration=%dс)...", scan_duration)
-            devices = await BleakScanner.discover(timeout=scan_duration)
+            async with _scan_lock:
+                logger.debug("Начало сканирования BLE (duration=%dс)...", scan_duration)
+                devices = await BleakScanner.discover(timeout=scan_duration)
         except Exception as exc:
             logger.warning(
                 "Ошибка при сканировании Bluetooth: %s. "
@@ -292,32 +297,45 @@ async def live_scan(rounds: int = 2, scan_sec: float = 4.0) -> dict[str, dict]:
         logger.warning("bleak не установлен — живое сканирование недоступно")
         return {}
 
-    aggregated: dict[str, dict] = {}
+# Ждём разблокировки сканера (фоновый сканер может быть занят)
+    try:
+        await asyncio.wait_for(_scan_lock.acquire(), timeout=15.0)
+    except asyncio.TimeoutError:
+        logger.warning("live_scan: не удалось захватить блокировку — сканер занят")
+        return {}
 
-    for round_no in range(1, rounds + 1):
-        found: dict[str, tuple[int | None, str | None]] = {}
+    try:
+        aggregated: dict[str, dict] = {}
 
-        def _on_device(device, adv) -> None:
-            rssi = getattr(adv, "rssi", None)
-            name = getattr(adv, "local_name", None) or getattr(device, "name", None)
-            prev = found.get(device.address)
-            if prev is None or (rssi is not None and (prev[0] is None or rssi > prev[0])):
-                found[device.address] = (rssi, name)
+        for round_no in range(1, rounds + 1):
+            found: dict[str, tuple[int | None, str | None]] = {}
 
-        scanner = BleakScanner(detection_callback=_on_device)
-        await scanner.start()
-        await asyncio.sleep(scan_sec)
-        await scanner.stop()
+            def _on_device(device, adv) -> None:
+                rssi = getattr(adv, "rssi", None)
+                name = getattr(adv, "local_name", None) or getattr(device, "name", None)
+                prev = found.get(device.address)
+                if prev is None or (rssi is not None and (prev[0] is None or rssi > prev[0])):
+                    found[device.address] = (rssi, name)
 
-        for mac, (rssi, name) in found.items():
-            entry = aggregated.setdefault(mac, {"name": None, "best_rssi": None})
-            if name and not entry["name"]:
-                entry["name"] = name
-            if rssi is not None and (
-                entry["best_rssi"] is None or rssi > entry["best_rssi"]
-            ):
-                entry["best_rssi"] = rssi
+            scanner = BleakScanner(detection_callback=_on_device)
+            await scanner.start()
+            await asyncio.sleep(scan_sec)
+            await scanner.stop()
 
-        logger.debug("live_scan: цикл %d/%d — %d уникальных устройств", round_no, rounds, len(aggregated))
+            for mac, (rssi, name) in found.items():
+                entry = aggregated.setdefault(mac, {"name": None, "best_rssi": None})
+                if name and not entry["name"]:
+                    entry["name"] = name
+                if rssi is not None and (
+                    entry["best_rssi"] is None or rssi > entry["best_rssi"]
+                ):
+                    entry["best_rssi"] = rssi
 
-    return aggregated
+            logger.debug(
+                "live_scan: цикл %d/%d — %d уникальных устройств",
+                round_no, rounds, len(aggregated),
+            )
+
+        return aggregated
+    finally:
+        _scan_lock.release()

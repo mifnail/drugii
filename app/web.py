@@ -336,7 +336,20 @@ async def api_scan(request: web.Request) -> web.Response:
     rounds = max(1, min(10, int(body.get("rounds", 2))))
     scan_sec = max(1.0, min(15.0, float(body.get("scan_sec", 4.0))))
 
-    raw = await live_scan(rounds=rounds, scan_sec=scan_sec)
+    try:
+        raw = await live_scan(rounds=rounds, scan_sec=scan_sec)
+    except Exception as exc:
+        logger.error("Ошибка живого сканирования: %s", exc)
+        return web.json_response(
+            {"error": f"Ошибка сканирования: {exc}", "devices": []}, status=500,
+        )
+
+    if not raw:
+        return web.json_response(
+            {"error": "Сканер занят (фоновое сканирование). Повторите через несколько секунд.",
+             "devices": []},
+            status=503,
+        )
 
     # Узнаём, какие MAC уже привязаны
     db = await get_db()
