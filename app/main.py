@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 from typing import NoReturn
 
@@ -24,6 +25,7 @@ from app.config import Config
 from app.database import close_db, init_db
 from app.greeting import generate_greeting  # noqa: F401 — инициализация модуля
 from app.scanner import run_scanner
+from app.web import run_web_ui
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,12 @@ async def main() -> NoReturn:
     _setup_logging(config.log_level)
 
     logger.info("Запуск «ДругИИ»...")
+    # Сохраняем PID для перезапуска
+    try:
+        with open("/tmp/opencode/drugii.pid", "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
 
     await init_db(config)
     logger.info("База данных инициализирована.")
@@ -71,6 +79,7 @@ async def main() -> NoReturn:
         run_scanner(config),
         run_telegram_bot(config),
         run_max_bot(config),
+        run_web_ui(config),
         run_cli(config),
     )
 

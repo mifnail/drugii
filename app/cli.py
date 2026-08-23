@@ -15,6 +15,7 @@ import click
 
 from app.config import Config
 from app.database import get_db, init_db
+from app.scanner import live_scan, rssi_label, rssi_to_distance
 
 logger = logging.getLogger(__name__)
 
@@ -330,82 +331,6 @@ def device_remove(device_id: int) -> None:
 # ---------- device scan (привязка по близости) ----------
 
 
-# Ориентировочная мощность передатчика на расстоянии 1 м (dBm)
-_TX_POWER = -59
-# Показатель затухания сигнала в помещении
-_PATH_LOSS_N = 2.2
-
-
-def _rssi_to_distance(rssi: int) -> float:
-    """
-    Грубая оценка расстояния до устройства по уровню сигнала.
-
-    Args:
-        rssi: Мощность принятого сигнала в dBm (отрицательная).
-
-    Returns:
-        Расстояние в метрах (очень приблизительно).
-    """
-    return 10 ** ((_TX_POWER - rssi) / (10 * _PATH_LOSS_N))
-
-
-def _rssi_label(rssi: int) -> str:
-    """Человеческое описание близости устройства к сканеру."""
-    if rssi >= -55:
-        return "ВПЛОТНУЮ — поднесено к сканеру"
-    if rssi >= -65:
-        return "очень близко (~0.5 м)"
-    if rssi >= -75:
-        return "рядом (~1–2 м)"
-    if rssi >= -85:
-        return "в той же комнате"
-    return "далеко"
-
-
-async def _live_scan_rounds(rounds: int, scan_sec: int) -> dict[str, dict]:
-    """
-    Выполняет несколько циклов BLE-сканирования и агрегирует лучший RSSI.
-
-    Args:
-        rounds: Количество циклов.
-        scan_sec: Длительность одного цикла в секундах.
-
-    Returns:
-        Словарь {mac: {"name": ..., "best_rssi": ...}}.
-    """
-    from bleak import BleakScanner
-
-    aggregated: dict[str, dict] = {}
-
-    for round_no in range(1, rounds + 1):
-        found: dict[str, tuple[int | None, str | None]] = {}
-
-        def _on_device(device, adv) -> None:
-            rssi = getattr(adv, "rssi", None)
-            name = getattr(adv, "local_name", None) or getattr(device, "name", None)
-            prev = found.get(device.address)
-            if prev is None or (rssi is not None and (prev[0] is None or rssi > prev[0])):
-                found[device.address] = (rssi, name)
-
-        scanner = BleakScanner(detection_callback=_on_device)
-        await scanner.start()
-        await asyncio.sleep(scan_sec)
-        await scanner.stop()
-
-        for mac, (rssi, name) in found.items():
-            entry = aggregated.setdefault(mac, {"name": None, "best_rssi": None})
-            if name and not entry["name"]:
-                entry["name"] = name
-            if rssi is not None and (
-                entry["best_rssi"] is None or rssi > entry["best_rssi"]
-            ):
-                entry["best_rssi"] = rssi
-
-        click.echo(f"  цикл {round_no}/{rounds}: всего уникальных устройств {len(aggregated)}")
-
-    return aggregated
-
-
 def _print_scan_table(
     devices: dict[str, dict], min_rssi: int, user_macs: set[str]
 ) -> list[str]:
@@ -436,10 +361,10 @@ def _print_scan_table(
 
     ordered: list[str] = []
     for i, (mac, name, rssi) in enumerate(rows, start=1):
-        dist = f"{_rssi_to_distance(rssi):.1f}"
+        dist = f"{rssi_to_distance(rssi):.1f}"
         bound = "✅ да" if mac in user_macs else "—"
         click.echo(
-            f"{i:>2}  {rssi:>4}  {dist:>5}  {_rssi_label(rssi):<30}  "
+            f"{i:>2}  {rssi:>4}  {dist:>5}  {rssi_label(rssi):<30}  "
             f"{mac:<18}  {str(name or '—'):<25}  {bound}"
         )
         ordered.append(mac)
@@ -473,7 +398,7 @@ def device_scan(rounds: int, scan_sec: int, min_rssi: int, bind: bool) -> None:
         user_macs = {row["mac_address"] for row in await cursor.fetchall()}
 
         click.echo(f"Сканирование: {rounds} цикла(ов) по {scan_sec} сек…")
-        devices = await _live_scan_rounds(rounds, scan_sec)
+        devices = await live_scan(rounds, scan_sec)
         click.echo()
         ordered = _print_scan_table(devices, min_rssi, user_macs)
 

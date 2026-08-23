@@ -242,3 +242,82 @@ async def run_scanner(config: Config) -> NoReturn:
         # Ожидание до следующего цикла
         logger.debug("Ожидание %d с до следующего сканирования...", config.scan_interval)
         await asyncio.sleep(config.scan_interval)
+
+
+# ---------------------------------------------------------------------------
+# Вспомогательные функции для живого сканирования (используются CLI и веб-UI)
+# ---------------------------------------------------------------------------
+
+# Ориентировочная мощность передатчика на расстоянии 1 м (dBm)
+_TX_POWER = -59
+# Показатель затухания сигнала в помещении
+_PATH_LOSS_N = 2.2
+
+
+def rssi_to_distance(rssi: int) -> float:
+    """Грубая оценка расстояния до устройства по уровню сигнала (м)."""
+    return 10 ** ((_TX_POWER - rssi) / (10 * _PATH_LOSS_N))
+
+
+def rssi_label(rssi: int) -> str:
+    """Человеческое описание близости устройства к сканеру."""
+    if rssi >= -55:
+        return "ВПЛОТНУЮ — поднесено к сканеру"
+    if rssi >= -65:
+        return "очень близко (~0.5 м)"
+    if rssi >= -75:
+        return "рядом (~1–2 м)"
+    if rssi >= -85:
+        return "в той же комнате"
+    return "далеко"
+
+
+async def live_scan(rounds: int = 2, scan_sec: float = 4.0) -> dict[str, dict]:
+    """
+    Живое BLE-сканирование через callback-API для получения RSSI.
+
+    Выполняет несколько циклов сканирования и агрегирует лучший RSSI
+    для каждого замеченного MAC-адреса.
+
+    Args:
+        rounds: Количество циклов сканирования.
+        scan_sec: Длительность одного цикла (секунды).
+
+    Returns:
+        Словарь ``{mac: {"name": str | None, "best_rssi": int}}``.
+    """
+    try:
+        from bleak import BleakScanner
+    except ImportError:
+        logger.warning("bleak не установлен — живое сканирование недоступно")
+        return {}
+
+    aggregated: dict[str, dict] = {}
+
+    for round_no in range(1, rounds + 1):
+        found: dict[str, tuple[int | None, str | None]] = {}
+
+        def _on_device(device, adv) -> None:
+            rssi = getattr(adv, "rssi", None)
+            name = getattr(adv, "local_name", None) or getattr(device, "name", None)
+            prev = found.get(device.address)
+            if prev is None or (rssi is not None and (prev[0] is None or rssi > prev[0])):
+                found[device.address] = (rssi, name)
+
+        scanner = BleakScanner(detection_callback=_on_device)
+        await scanner.start()
+        await asyncio.sleep(scan_sec)
+        await scanner.stop()
+
+        for mac, (rssi, name) in found.items():
+            entry = aggregated.setdefault(mac, {"name": None, "best_rssi": None})
+            if name and not entry["name"]:
+                entry["name"] = name
+            if rssi is not None and (
+                entry["best_rssi"] is None or rssi > entry["best_rssi"]
+            ):
+                entry["best_rssi"] = rssi
+
+        logger.debug("live_scan: цикл %d/%d — %d уникальных устройств", round_no, rounds, len(aggregated))
+
+    return aggregated

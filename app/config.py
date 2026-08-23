@@ -43,6 +43,9 @@ class Config:
     webhook_host: str = field(default="127.0.0.1")
     webhook_port: int = field(default=8080)
 
+    # --- Порт веб-интерфейса оператора (по умолчанию 8081, отдельно от webhook) ---
+    web_ui_port: int = field(default=8081)
+
     # --- Публичный HTTPS URL вебхука для регистрации на платформе MAX ---
     webhook_public_url: str = field(default="")
 
@@ -85,6 +88,7 @@ class Config:
         greeting_min_age=cls._get_env_int("GREETING_MIN_AGE", 30),
         webhook_host=cls._get_env("WEBHOOK_HOST", "127.0.0.1"),
         webhook_port=cls._get_env_int("WEBHOOK_PORT", 8080),
+        web_ui_port=cls._get_env_int("WEB_UI_PORT", 8081),
         webhook_secret=cls._get_env("WEBHOOK_SECRET", ""),
         log_level=cls._get_env("LOG_LEVEL", "INFO"),
     )
