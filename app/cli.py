@@ -150,6 +150,7 @@ async def _send_test_greeting(user_id: int) -> str:
     from app.bot_max import send_greeting_max
     from app.bot_telegram import send_greeting_telegram
 
+    config = Config.load()
     db = await get_db()
     cursor = await db.execute(
         "SELECT full_name, telegram_id, max_chat_id FROM users WHERE id = ?",
@@ -159,7 +160,7 @@ async def _send_test_greeting(user_id: int) -> str:
     if user is None:
         return f"Пользователь с ID {user_id} не найден."
 
-    text = generate_greeting(user["full_name"])
+    text = await generate_greeting(config, user["full_name"])
     sent = []
 
     if user["telegram_id"]:
@@ -585,6 +586,31 @@ def greeting_test(user_id: int) -> None:
     async def _run() -> None:
         result = await _send_test_greeting(user_id)
         click.echo(result)
+    asyncio.run(_with_db(_run)())
+
+
+@cli.command(name="discovered")
+@click.option("--limit", "-n", default=30, type=int, help="Количество записей")
+def discovered_cmd(limit: int) -> None:
+    """Показать каталог всех замеченных BLE-устройств."""
+    async def _run() -> None:
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT mac_address, device_name, first_seen_at, last_seen_at, times_seen "
+            "FROM discovered_devices ORDER BY last_seen_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            click.echo("Каталог пуст — устройства ещё не попадали в зону сканирования.")
+            return
+        click.echo(f"{'MAC':<18}  {'Имя':<25}  {'Впервые':<22}  {'Последний':<22}  {'Раз'}")
+        click.echo("-" * 100)
+        for r in rows:
+            click.echo(
+                f"{r['mac_address']:<18}  {str(r['device_name'] or '—'):<25}  "
+                f"{r['first_seen_at']:<22}  {r['last_seen_at']:<22}  {r['times_seen']}"
+            )
     asyncio.run(_with_db(_run)())
 
 

@@ -105,6 +105,13 @@ tr:hover{background:rgba(233,69,96,.05);}
 
 </div>
 
+<!-- Каталог устройств -->
+<div class="card" style="grid-column: 1 / -1;">
+<h2>Каталог замеченных устройств <span class="badge" id="discCount">0</span></h2>
+<table id="discTable"><thead><tr><th>MAC</th><th>Имя</th><th>Впервые</th><th>Последний раз</th><th>Раз</th></tr></thead>
+<tbody><tr><td colspan="5" class="empty">Загрузка...</td></tr></tbody></table>
+</div>
+
 <!-- Модальное окно привязки -->
 <div class="modal-overlay" id="bindModal">
 <div class="modal">
@@ -308,7 +315,29 @@ function e(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 
 // ---------------------------------------------------------------- init
 loadUsers();
-setInterval(loadUsers, 30000); // автообновление раз в 30 сек
+loadDiscovered();
+setInterval(loadUsers, 30000);
+setInterval(loadDiscovered, 60000);
+
+async function loadDiscovered() {
+  try {
+    const r = await fetch('/api/discovered');
+    const data = await r.json();
+    document.getElementById('discCount').textContent = data.length;
+    const tbody = document.querySelector('#discTable tbody');
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">Устройств пока нет</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(d => `<tr>
+      <td><code>${d.mac_address}</code></td>
+      <td class="name" title="${e(d.device_name||'')}">${e(d.device_name)||'—'}</td>
+      <td>${d.first_seen_at}</td>
+      <td>${d.last_seen_at}</td>
+      <td>${d.times_seen}</td>
+    </tr>`).join('');
+  } catch(e) {}
+}
 </script>
 
 </body>
@@ -337,6 +366,17 @@ async def api_devices(_request: web.Request) -> web.Response:
                   u.full_name AS owner_name
            FROM devices d LEFT JOIN users u ON d.user_id = u.id
            ORDER BY d.id"""
+    )
+    rows = await cursor.fetchall()
+    return web.json_response([dict(r) for r in rows])
+
+
+async def api_discovered(_request: web.Request) -> web.Response:
+    """GET /api/discovered — каталог всех BLE-устройств, когда-либо замеченных сканером."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT mac_address, device_name, first_seen_at, last_seen_at, times_seen "
+        "FROM discovered_devices ORDER BY last_seen_at DESC LIMIT 200"
     )
     rows = await cursor.fetchall()
     return web.json_response([dict(r) for r in rows])
@@ -573,6 +613,7 @@ async def run_web_ui(config: Config) -> NoReturn:
     app.router.add_get("/", _serve_dashboard)
     app.router.add_get("/api/users", api_users)
     app.router.add_get("/api/devices", api_devices)
+    app.router.add_get("/api/discovered", api_discovered)
     app.router.add_post("/api/scan", api_scan)
     app.router.add_post("/api/bind", api_bind)
     app.router.add_post("/api/unbind", api_unbind)

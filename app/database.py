@@ -75,6 +75,15 @@ async def _create_tables(db: aiosqlite.Connection) -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS discovered_devices (
+            mac_address TEXT PRIMARY KEY,
+            device_name TEXT,
+            first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            times_seen INTEGER NOT NULL DEFAULT 1
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS greetings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -105,6 +114,7 @@ async def _create_indexes(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_greetings_sent_at ON greetings(sent_at)",
         "CREATE INDEX IF NOT EXISTS idx_devices_mac_address ON devices(mac_address)",
         "CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_discovered_last_seen ON discovered_devices(last_seen_at)",
     ]
 
     for idx in indexes:

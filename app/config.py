@@ -46,6 +46,12 @@ class Config:
     # --- Порт веб-интерфейса оператора (по умолчанию 8081, отдельно от webhook) ---
     web_ui_port: int = field(default=8081)
 
+    # --- GigaChat (генерация приветствий нейросетью) ---
+    gigachat_base_url: str = field(default="https://api.giga.chat/v1")
+    gigachat_credentials: str = field(default="")
+    gigachat_scope: str = field(default="GIGACHAT_API_PERS")
+    gigachat_model: str = field(default="GigaChat-3-Ultra")
+
     # --- Публичный HTTPS URL вебхука для регистрации на платформе MAX ---
     webhook_public_url: str = field(default="")
 
@@ -89,6 +95,10 @@ class Config:
         webhook_host=cls._get_env("WEBHOOK_HOST", "127.0.0.1"),
         webhook_port=cls._get_env_int("WEBHOOK_PORT", 8080),
         web_ui_port=cls._get_env_int("WEB_UI_PORT", 8081),
+        gigachat_base_url=cls._get_env("GIGACHAT_BASE_URL", "https://api.giga.chat/v1"),
+        gigachat_credentials=cls._get_env("GIGACHAT_CREDENTIALS", ""),
+        gigachat_scope=cls._get_env("GIGACHAT_SCOPE", "GIGACHAT_API_PERS"),
+        gigachat_model=cls._get_env("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
         webhook_secret=cls._get_env("WEBHOOK_SECRET", ""),
         log_level=cls._get_env("LOG_LEVEL", "INFO"),
     )

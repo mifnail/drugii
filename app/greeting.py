@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from datetime import datetime, timezone
 
+from app.ai import generate_ai_greeting, generate_fallback_greeting
 from app.bot_max import send_greeting_max
 from app.bot_telegram import send_greeting_telegram
 from app.config import Config
@@ -19,51 +19,27 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Шаблоны приветствий
-# ---------------------------------------------------------------------------
 
-_GREETING_TEMPLATES: list[str] = [
-    "Добро пожаловать, {name}! Мы очень рады видеть вас здесь сегодня.",
-    "Приветствуем, {name}! Ваше присутствие делает этот день особенным.",
-    "Здравствуйте, {name}! Всегда приятно, когда вы рядом.",
-    "Рады приветствовать вас, {name}! Хорошего дня и отличного настроения!",
-    "{name}, с возвращением! Мы уже заждались.",
-    "Всем привет, {name}! Спасибо, что заглянули к нам.",
-    "Ура, {name} снова здесь! Добро пожаловать!",
-    "Здравствуйте, {name}! Как хорошо, что вы пришли.",
-    "{name}, привет! Мы счастливы видеть вас снова.",
-    "Самые тёплые пожелания, {name}! Рады вашему приходу.",
-]
-
-_DEVICE_SUFFIX_TEMPLATES: list[str] = [
-    "Мы заметили ваше устройство {device} поблизости.",
-    "Ваше {device} дало нам знать, что вы здесь.",
-    "Сигнал от {device} подсказал нам, что вы рядом.",
-]
-
-
-def generate_greeting(user_full_name: str, device_name: str | None = None) -> str:
+async def generate_greeting(
+    config: Config,
+    user_full_name: str,
+    device_name: str | None = None,
+) -> str:
     """
-    Генерирует дружественное приветствие на русском языке.
+    Генерирует приветствие: через GigaChat, с fallback на шаблоны.
 
     Args:
+        config: Конфигурация приложения.
         user_full_name: Полное имя пользователя (ФИО).
         device_name: Название обнаруженного BLE-устройства (опционально).
 
     Returns:
         Строка приветствия.
     """
-    # Берём только имя (первое слово ФИО) для неформального обращения
-    short_name = user_full_name.split()[0] if user_full_name else "Дорогой друг"
-
-    main_part = random.choice(_GREETING_TEMPLATES).format(name=short_name)
-
-    if device_name:
-        suffix = random.choice(_DEVICE_SUFFIX_TEMPLATES).format(device=device_name)
-        return f"{main_part}\n\n{suffix}"
-
-    return main_part
+    ai_text = await generate_ai_greeting(config, user_full_name, device_name)
+    if ai_text:
+        return ai_text
+    return generate_fallback_greeting(user_full_name)
 
 
 async def process_new_detection(
@@ -199,7 +175,7 @@ async def process_new_detection(
 
     # Используем имя устройства из БД, если не передано новое
     effective_device_name = device_name or registered_device_name
-    greeting_text = generate_greeting(full_name, effective_device_name)
+    greeting_text = await generate_greeting(config, full_name, effective_device_name)
 
     # ------------------------------------------------------------------
     # 5. Отправка приветствия

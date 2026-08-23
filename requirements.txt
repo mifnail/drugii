@@ -6,3 +6,4 @@ aiohttp>=3.9              # HTTP для MAX бота + webhook сервер
 python-dotenv>=1.0        # Переменные окружения
 click>=8.1                # CLI для оператора
 aiosqlite>=0.20           # Асинхронный SQLite
+gigachat>=0.2             # Генерация приветствий через ИИ (Сбер)

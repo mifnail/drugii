@@ -117,6 +117,32 @@ async def _write_detections(
         return None
 
 
+async def _upsert_discovered(mac_address: str, device_name: str | None) -> None:
+    """
+    Добавляет или обновляет устройство в каталоге ``discovered_devices``.
+
+    Если MAC уже есть — обновляет ``last_seen_at``, ``times_seen`` и имя.
+    Если нет — создаёт новую запись.
+    """
+    db = await get_db()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await db.execute(
+            """
+            INSERT INTO discovered_devices (mac_address, device_name, first_seen_at, last_seen_at, times_seen)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(mac_address) DO UPDATE SET
+                device_name = COALESCE(?, discovered_devices.device_name),
+                last_seen_at = excluded.last_seen_at,
+                times_seen = discovered_devices.times_seen + 1
+            """,
+            (mac_address, device_name, now, now, device_name),
+        )
+        await db.commit()
+    except Exception as exc:
+        logger.error("Ошибка записи discovered_devices для %s: %s", mac_address, exc)
+
+
 async def handle_new_detections(config: Config) -> None:
     """
     Обрабатывает обнаружения, для которых ещё не было отправлено приветствие.
@@ -231,6 +257,7 @@ async def run_scanner(config: Config) -> NoReturn:
                 name = _sanitize_device_name(dev.name or None)
                 rssi_val = getattr(dev, "rssi", None)
                 await _write_detections(mac, name, rssi_val)
+                await _upsert_discovered(mac, name)
             except Exception as exc:
                 logger.error(
                     "Ошибка обработки устройства %s: %s",
