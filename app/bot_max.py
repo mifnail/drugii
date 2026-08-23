@@ -99,16 +99,17 @@ async def send_greeting_max(chat_id: str, message: str) -> None:
     session = await _get_session()
     url = f"{_config.max_api_url}/messages"
 
-    # Пытаемся сначала как chat_id, затем (для числовых значений) как user_id.
-    # Разные события платформы отдают разные идентификаторы.
-    attempts: list[dict[str, Any]] = [{"chat_id": chat_id}]
+    # ID получателя передаётся ТОЛЬКО в query-параметрах (наследие TamTam API);
+    # в JSON-теле допускается только текст и вложения.
+    attempts: list[dict[str, Any]] = [{"chat_id": str(chat_id)}]
     if str(chat_id).isdigit():
         attempts.append({"user_id": int(chat_id)})
 
     last_error: Exception | None = None
     for payload in attempts:
         async with session.post(
-            url, headers=_auth_headers(_config), json={**payload, "text": message}
+            url, headers=_auth_headers(_config), params=payload,
+            json={"text": message},
         ) as resp:
             if resp.status < 400:
                 logger.debug(
@@ -120,7 +121,7 @@ async def send_greeting_max(chat_id: str, message: str) -> None:
             last_error = aiohttp.ClientError(
                 f"MAX API вернул {resp.status}: {body}"
             )
-            # Unknown recipient — пробуем следующий вариант идентификатора
+            # Dialog not found / Unknown recipient — пробуем следующий вариант
     assert last_error is not None
     raise last_error
 
