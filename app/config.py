@@ -28,6 +28,9 @@ class Config:
     # --- URL платформы MAX ---
     max_api_url: str = field(default="https://platform-api2.max.ru")
 
+    # --- Режим приёма обновлений MAX: longpoll | webhook ---
+    max_mode: str = field(default="longpoll")
+
     # --- Путь к базе данных ---
     database_path: str = field(default="")
 
@@ -75,6 +78,7 @@ class Config:
         tg_proxy=cls._get_env("TG_PROXY", ""),
         webhook_public_url=cls._get_env("WEBHOOK_PUBLIC_URL", ""),
         max_api_url=cls._get_env("MAX_API_URL", "https://platform-api2.max.ru"),
+        max_mode=cls._get_env("MAX_MODE", "longpoll"),
         database_path=cls._get_env("DATABASE_PATH", default_db_path),
         scan_interval=cls._get_env_int("SCAN_INTERVAL", 30),
         greeting_cooldown=cls._get_env_int("GREETING_COOLDOWN", 3600),
