@@ -13,6 +13,7 @@ from typing import NoReturn
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from app.config import Config
 from app.database import get_db
@@ -211,7 +212,13 @@ async def run_telegram_bot(config: Config) -> NoReturn:
 
     logger.info("bot_telegram: запуск...")
 
-    _bot = Bot(token=config.bot_token_tg)
+    if config.tg_proxy:
+        logger.info("bot_telegram: использую прокси %s", config.tg_proxy)
+        session = AiohttpSession(proxy=config.tg_proxy)
+        _bot = Bot(token=config.bot_token_tg, session=session)
+    else:
+        logger.info("bot_telegram: подключение напрямую (TG_PROXY не задан)")
+        _bot = Bot(token=config.bot_token_tg)
     dp = Dispatcher()
 
     dp.message.register(_cmd_start, Command("start"))

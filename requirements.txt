@@ -1,5 +1,6 @@
 # ДругИИ — зависимости проекта
 aiogram>=3.0              # Telegram бот
+aiohttp-socks>=0.8        # SOCKS5-прокси для aiogram (xray/v2ray)
 bleak>=0.21               # BLE сканер
 aiohttp>=3.9              # HTTP для MAX бота + webhook сервер
 python-dotenv>=1.0        # Переменные окружения

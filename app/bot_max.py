@@ -93,8 +93,15 @@ async def _register_webhook(config: Config) -> None:
         logger.info("BOT_TOKEN_MAX не задан. Webhook не регистрируем.")
         return
 
+    if not config.webhook_public_url:
+        logger.info(
+            "WEBHOOK_PUBLIC_URL не задан — пропускаем регистрацию webhook "
+            "на платформе MAX (платформа требует публичный HTTPS URL)."
+        )
+        return
+
     session = await _get_session()
-    webhook_url = f"http://{config.webhook_host}:{config.webhook_port}/max/webhook"
+    webhook_url = f"{config.webhook_public_url.rstrip('/')}/max/webhook"
     url = f"{config.max_api_url}/subscriptions"
     headers = {
         "Authorization": f"{config.bot_token_max}",

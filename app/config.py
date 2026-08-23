@@ -22,6 +22,9 @@ class Config:
     bot_token_tg: str = field(default="")
     bot_token_max: str = field(default="")
 
+    # --- Прокси для Telegram (xray/v2ray SOCKS5/HTTP), пусто = напрямую ---
+    tg_proxy: str = field(default="")
+
     # --- URL платформы MAX ---
     max_api_url: str = field(default="https://platform-api2.max.ru")
 
@@ -36,6 +39,9 @@ class Config:
     # --- Webhook сервер ---
     webhook_host: str = field(default="127.0.0.1")
     webhook_port: int = field(default=8080)
+
+    # --- Публичный HTTPS URL вебхука для регистрации на платформе MAX ---
+    webhook_public_url: str = field(default="")
 
     # --- Секрет для аутентификации webhook MAX ---
     webhook_secret: str = field(default="")
@@ -66,6 +72,8 @@ class Config:
         return cls(
         bot_token_tg=cls._get_env("BOT_TOKEN_TG", ""),
         bot_token_max=cls._get_env("BOT_TOKEN_MAX", ""),
+        tg_proxy=cls._get_env("TG_PROXY", ""),
+        webhook_public_url=cls._get_env("WEBHOOK_PUBLIC_URL", ""),
         max_api_url=cls._get_env("MAX_API_URL", "https://platform-api2.max.ru"),
         database_path=cls._get_env("DATABASE_PATH", default_db_path),
         scan_interval=cls._get_env_int("SCAN_INTERVAL", 30),

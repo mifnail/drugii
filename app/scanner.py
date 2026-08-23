@@ -201,10 +201,7 @@ async def run_scanner(config: Config) -> NoReturn:
     while True:
         try:
             logger.debug("Начало сканирования BLE (duration=%dс)...", scan_duration)
-            devices = await BleakScanner.discover(
-                timeout=scan_duration,
-                return_adv=True,
-            )
+            devices = await BleakScanner.discover(timeout=scan_duration)
         except Exception as exc:
             logger.warning(
                 "Ошибка при сканировании Bluetooth: %s. "
@@ -215,12 +212,8 @@ async def run_scanner(config: Config) -> NoReturn:
             await asyncio.sleep(config.scan_interval)
             continue
 
-        # devices — dict[bleak.BLEDevice, AdvertisementData]
-        # или list[BLEDevice] в зависимости от return_adv
-        if isinstance(devices, dict):
-            found = list(devices.keys())
-        else:
-            found = list(devices)
+        # devices — list[BLEDevice]
+        found = list(devices)
 
         logger.info("Обнаружено BLE-устройств: %d", len(found))
 
