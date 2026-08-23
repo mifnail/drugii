@@ -1,0 +1,7 @@
+# ДругИИ — зависимости проекта
+aiogram>=3.0              # Telegram бот
+bleak>=0.21               # BLE сканер
+aiohttp>=3.9              # HTTP для MAX бота + webhook сервер
+python-dotenv>=1.0        # Переменные окружения
+click>=8.1                # CLI для оператора
+aiosqlite>=0.20           # Асинхронный SQLite
