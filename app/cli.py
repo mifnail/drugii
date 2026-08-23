@@ -14,9 +14,22 @@ from typing import NoReturn
 import click
 
 from app.config import Config
-from app.database import get_db
+from app.database import get_db, init_db
 
 logger = logging.getLogger(__name__)
+
+
+def _with_db(fn):
+    """
+    Обёртка для асинхронных команд CLI: инициализирует БД перед выполнением.
+
+    Args:
+        fn: Асинхронная функция команды.
+    """
+    async def wrapper() -> None:
+        await init_db(Config.load())
+        await fn()
+    return wrapper
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции (работа с БД)
@@ -203,7 +216,7 @@ def user_list() -> None:
                 f"{str(u['max_chat_id'] or '—'):<20}  "
                 f"{u['created_at']}"
             )
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 @user.command(name="add")
@@ -215,7 +228,7 @@ def user_add(full_name: str, telegram_id: int | None, max_chat_id: str | None) -
     async def _run() -> None:
         uid = await _add_user(full_name, telegram_id, max_chat_id or None)
         click.echo(f"✅ Пользователь добавлен с ID {uid}")
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 @user.command(name="show")
@@ -250,7 +263,7 @@ def user_show(user_id: int) -> None:
                     f"  {status} #{d['id']} {d['mac_address']} "
                     f"({d['device_name'] or '—'})"
                 )
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 # ---------- device ----------
@@ -280,7 +293,7 @@ def device_list() -> None:
                 f"{str(d['user_name'] or '—'):<25}  "
                 f"{active}"
             )
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 @device.command(name="add")
@@ -298,7 +311,7 @@ def device_add(mac: str, name: str | None, user_id: int) -> None:
     async def _run() -> None:
         did = await _add_device(mac, name or None, user_id)
         click.echo(f"✅ Устройство добавлено с ID {did}")
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 @device.command(name="remove")
@@ -311,7 +324,7 @@ def device_remove(device_id: int) -> None:
             click.echo(f"✅ Устройство #{device_id} деактивировано.")
         else:
             click.echo(f"❌ Устройство с ID {device_id} не найдено.")
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 # ---------- detections ----------
@@ -337,7 +350,7 @@ def detections(limit: int) -> None:
                 f"{r['detected_at']:<22}  "
                 f"{processed}"
             )
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 # ---------- greetings ----------
@@ -362,7 +375,7 @@ def greetings(limit: int) -> None:
                 f"{r['sent_via']:<12}  "
                 f"{r['sent_at']:<22}"
             )
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 # ---------- test greeting ----------
@@ -375,7 +388,7 @@ def greeting_test(user_id: int) -> None:
     async def _run() -> None:
         result = await _send_test_greeting(user_id)
         click.echo(result)
-    asyncio.run(_run())
+    asyncio.run(_with_db(_run)())
 
 
 # ---------------------------------------------------------------------------
